@@ -1000,6 +1000,59 @@ que simulo el encoder (CRC de las 741 784 muestras).
 
 ---
 
+## 2026-09-11 — M2: la tapa en HAM6, medida
+
+**Decision:** la tapa es HAM6 de 320x256 (6 planos, 61 440 bytes) sobre una
+paleta base de 16 colores sacada por k-means en Oklab, con el color 0 negro
+(es tambien el borde). Cada linea arranca desde el color 0.
+
+**Como se elige cada pixel.** HAM deja "flecos": para llegar a un color
+lejano hay que cambiar rojo, verde y azul de a uno, y un codificador
+codicioso decide sin mirar adelante y se queda con la componente equivocada
+para el pixel siguiente. En su lugar hay una **busqueda en haz por linea**:
+en cada pixel se guardan los `beam` caminos mas baratos (error Oklab al
+cuadrado acumulado), **uno por color resultante distinto** —lo que viene
+despues depende solo de ese color, no de como se llego— y al final de la
+linea se sigue el mejor hacia atras.
+
+**Medido** con la tapa que dio Az (2560x1440; despues de angostar 15/16 por
+el pixel PAL entra como 320x192 con letterbox). Error Oklab medio contra la
+imagen fuente y porcentaje de pixeles a mas de 0,1:
+
+| `--ham-beam` | error medio | pixeles a > 0,1 | tiempo |
+|---|---|---|---|
+| 1 (codicioso) | 0,0154 | 0,07 % | 0,3 s |
+| 4 | 0,0148 | 0,06 % | 0,4 s |
+| **16 (por defecto)** | **0,0148** | **0,04 %** | **0,7 s** |
+| 64 | 0,0148 | 0,03 % | 2,3 s |
+| 256 | 0,0148 | 0,03 % | 6,2 s |
+| sin HAM, solo los 16 colores | 0,0204 | 0,47 % | — |
+
+**Conclusion:** HAM baja los pixeles malos de 0,47 % a 0,04 %, y eso es
+exactamente lo que se ve: los degrades (el fondo, la piel) salen sin
+banding. El haz casi no mueve el promedio y algo si la cola; de 16 para
+arriba no cambia nada medible, asi que queda 16 por defecto. La tapa cuesta
+61 472 bytes fijos en el disco.
+
+**Toggle de audio (`--audio-format adpcm|pcm8`),** como pidio Az: los dos
+formatos estan en el encoder y en el decoder de referencia. Con la tapa
+adentro, en un disquete entran:
+
+| formato | KB/s | duracion que entra | SNR |
+|---|---|---|---|
+| adpcm | 3,91 | **3:25** | 21,7 dB |
+| pcm8 | 7,82 | **1:42** | 37,8 dB |
+
+Es una decision de Az segun la cancion, no tecnica. Falta que elija cual
+quiere para su disco.
+
+**Verificacion:** `a5mu-dec` decodifica los dos archivos (adpcm y pcm8) y
+coincide exactamente con el encoder en los dos CRC: el de la tapa —el color
+`$0RGB` de los 81 920 pixeles, o sea lo que muestra Denise, no los planos— y
+el de las 741 784 muestras de audio.
+
+---
+
 ## 2026-09-10 — Pendiente de medir
 
 - ~~Velocidad de lectura de trackdisk.~~ Medida en el Hito 4: 17,9 KB/s.
