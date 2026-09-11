@@ -115,6 +115,14 @@ function Build-All {
     Invoke-Tool $Gcc ($cflags + $shared + @((Join-Path $root 'encoder\decode.c'),
                        '-o', (Join-Path $work 'a500vp-dec.exe'), '-lm'))
 
+    # Disco de musica (A5MU): encoder y decoder de referencia
+    $music = @((Join-Path $root 'encoder\adpcm.c'))
+    Invoke-Tool $Gcc ($cflags + $shared + $music + @((Join-Path $root 'encoder\music.c'),
+                       (Join-Path $root 'encoder\adf.c'),
+                       '-o', (Join-Path $work 'a5mu-enc.exe'), '-lm'))
+    Invoke-Tool $Gcc ($cflags + $shared + $music + @((Join-Path $root 'encoder\musicdec.c'),
+                       '-o', (Join-Path $work 'a5mu-dec.exe'), '-lm'))
+
     Invoke-Tool (Join-Path $work 'mkadf.exe') @(
         '--boot',   (Join-Path $work 'boot.bin'),
         '--player', (Join-Path $work 'memcheck.bin'),

@@ -1,7 +1,69 @@
-# Formato del disco de A500VP
+# Formato de los discos de A5MU (y de A500VP, de donde viene)
 
-**Version de formato: 4.** Define el disco, el arranque y el bitstream de
-video y audio.
+Este fork define el **disco de musica (A5MU, version 1)**, en la seccion
+siguiente. La imagen de disco, el bootblock y la cabecera del reproductor
+son los de A500VP y siguen valiendo. El bitstream de video (version 4) queda
+documentado mas abajo porque el codigo de video todavia esta en el repo,
+pero el disco de musica no lo usa.
+
+---
+
+## Datos del disco de musica (A5MU, version 1)
+
+Todo big-endian. Van donde irian los datos de video: en el primer sector
+libre despues del reproductor.
+
+### Cabecera (32 bytes)
+
+| Offset | Tamano | Contenido |
+|---|---|---|
+| 0 | 4 | `"A5MU"` |
+| 4 | 2 | Version = 1 |
+| 6 | 2 | Flags, 0 |
+| 8 | 1 | Planos de la tapa: 0 = sin tapa, 6 = HAM6 |
+| 9 | 1 | Modo de la tapa: 1 = HAM (reservado mientras no haya tapa) |
+| 10 | 2 | Ancho de la tapa en pixeles (320) |
+| 12 | 2 | Alto de la tapa en lineas (256) |
+| 14 | 2 | Periodo de Paula del audio |
+| 16 | 1 | Formato del audio: 1 = IMA ADPCM de 4 bits |
+| 17 | 3 | Reservado, 0 |
+| 20 | 4 | Muestras de audio (par) |
+| 24 | 4 | Bytes de audio = muestras / 2 |
+| 28 | 4 | Reservado, 0 |
+
+Despues, si hay tapa: 16 palabras de paleta (`$0RGB`) y los planos, plano 0
+primero, `ancho / 8` bytes por linea (se define en M2). Despues, el audio.
+
+### Audio: IMA ADPCM de 4 bits
+
+Dos muestras por byte, **nibble alto primero**. Es el IMA/DVI de siempre
+(tablas de 89 pasos y de indices en `encoder\adpcm.c`), con un solo flujo
+para toda la cancion: el estado arranca en **predictor 0, indice 0** y sigue
+de muestra en muestra, sin bloques ni cabeceras intermedias. Por nibble:
+
+```
+paso = tabla_pasos[indice]
+dif  = paso >> 3
+si nibble & 4: dif += paso
+si nibble & 2: dif += paso >> 1
+si nibble & 1: dif += paso >> 2
+predictor += (nibble & 8) ? -dif : dif      ; limitado a -32768..32767
+indice    += tabla_indices[nibble & 7]      ; limitado a 0..88
+muestra    = predictor >> 8                 ; aritmetico: lo que toca Paula
+```
+
+### Verificacion
+
+El encoder escribe `<datos>.crc`: 8 bytes, el CRC-32 big-endian de la tapa
+(0 si no hay) y el de todas las muestras de 8 bits que tienen que sonar, en
+orden. El decoder de referencia (`a5mu-dec`) recalcula los dos.
+
+---
+
+# Lo heredado de A500VP
+
+**Version de formato del video: 4.** Define el disco, el arranque y el
+bitstream de video y audio.
 
 La version 2 no definia el contenido del audio de los paquetes (viajaba
 vacio). La 3 lo define y usa el byte 28 de la cabecera, antes reservado,
