@@ -25,14 +25,36 @@ libre despues del reproductor.
 | 10 | 2 | Ancho de la tapa en pixeles (320) |
 | 12 | 2 | Alto de la tapa en lineas (256) |
 | 14 | 2 | Periodo de Paula del audio |
-| 16 | 1 | Formato del audio: 1 = IMA ADPCM de 4 bits |
+| 16 | 1 | Formato del audio: 1 = IMA ADPCM de 4 bits, 2 = PCM de 8 bits con signo |
 | 17 | 3 | Reservado, 0 |
 | 20 | 4 | Muestras de audio (par) |
-| 24 | 4 | Bytes de audio = muestras / 2 |
+| 24 | 4 | Bytes de audio: muestras / 2 (ADPCM) o muestras (pcm8) |
 | 28 | 4 | Reservado, 0 |
 
-Despues, si hay tapa: 16 palabras de paleta (`$0RGB`) y los planos, plano 0
-primero, `ancho / 8` bytes por linea (se define en M2). Despues, el audio.
+Despues, si hay tapa, la tapa; despues, el audio.
+
+### Tapa: HAM6 de 320x256
+
+16 palabras de paleta (`$0RGB`; la 0 es negro) y los 6 planos de 10 240
+bytes, plano 0 primero, 40 bytes por linea, bit 7 = pixel de mas a la
+izquierda. Son 61 472 bytes. Se muestra en lowres PAL, 256 lineas, con
+`BPLCON0 = $6A00` (6 planos, HAM, color).
+
+Cada pixel vale 6 bits; el plano 0 es el bit 0. Los bits 5-4 dicen que hacer
+con los 3-0 (`d`), a partir del color del pixel anterior:
+
+| bits 5-4 | color del pixel |
+|---|---|
+| 00 | `paleta[d]` |
+| 01 | el anterior, con el azul = `d` |
+| 10 | el anterior, con el rojo = `d` |
+| 11 | el anterior, con el verde = `d` |
+
+Cada linea arranca desde el color 0, que es tambien el del borde.
+
+### Audio: PCM de 8 bits
+
+Una muestra por byte, con signo, tal cual la toca Paula.
 
 ### Audio: IMA ADPCM de 4 bits
 
@@ -54,9 +76,11 @@ muestra    = predictor >> 8                 ; aritmetico: lo que toca Paula
 
 ### Verificacion
 
-El encoder escribe `<datos>.crc`: 8 bytes, el CRC-32 big-endian de la tapa
-(0 si no hay) y el de todas las muestras de 8 bits que tienen que sonar, en
-orden. El decoder de referencia (`a5mu-dec`) recalcula los dos.
+El encoder escribe `<datos>.crc`: 8 bytes, dos CRC-32 big-endian. El de la
+tapa es el de **lo que se ve**: el color `$0RGB` de cada pixel, linea por
+linea, en big-endian (0 si no hay tapa); asi verifica tambien la regla de
+HAM. El del audio es el de todas las muestras de 8 bits que tienen que
+sonar, en orden. El decoder de referencia (`a5mu-dec`) recalcula los dos.
 
 ---
 
