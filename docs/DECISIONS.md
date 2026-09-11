@@ -958,6 +958,48 @@ medicion y reproduce desde los ~55 s de encendida la maquina.
 
 ---
 
+# A5MU: el disco de musica (fork, 2026-09-11)
+
+Lo de arriba es la historia de A500VP. Desde aca, el fork: un disquete con
+una cancion y una tapa. Especificacion y decisiones de Az en `CLAUDE.md`.
+
+## 2026-09-11 — M1: ADPCM de 4 bits, medido
+
+**Codec:** IMA ADPCM de 4 bits, un solo flujo sin bloques, estado inicial
+0/0, y lo que suena es el byte alto del predictor (`FORMAT.md`). El encoder
+elige, para cada muestra, el nibble que minimiza el error de esa muestra
+mas el de la siguiente con su mejor nibble (`--lookahead 1`).
+
+**Medido** con el audio completo del opening de FMA (1:32,65, periodo 443,
+ganancia automatica al pico a −1 dB = 2,84), SNR de lo que suena contra la
+entrada:
+
+| | SNR | bytes |
+|---|---|---|
+| ADPCM, lookahead 1 | **21,7 dB** | 370 892 (3,9 KB/s) |
+| ADPCM, codificador simple | 20,4 dB | igual |
+| ADPCM lookahead 1, salida redondeada | 22,1 dB | igual |
+| fib4 de A500VP, a la misma ganancia | 12,8 dB | igual |
+| pcm8 | 37,8 dB | el doble |
+
+**Lectura honesta:** contra fib4 a la misma ganancia la ventaja es enorme,
+pero con el opening, fib4 a su ganancia optima (1,0) daba 20,9 dB. O sea, a
+igual distorsion relativa, lo que gana el ADPCM es poder sonar al volumen
+maximo (~9 dB mas fuerte), no mucha menos distorsion. El techo es el propio
+IMA de 4 bits con musica densa a 8 kHz.
+
+**Salida truncada, no redondeada:** redondear el byte de salida da solo
++0,4 dB; no justifica cambiar el formato ni el decoder del 68000
+(`asr.w #8`). Mas adelante, si hace falta calidad al mismo tamano: un
+predictor de segundo orden o una busqueda mas profunda en el encoder.
+
+**Duracion:** a 4003 bytes/s, en un disco con tapa HAM6 entran ~3:25.
+
+El decoder de referencia (`a5mu-dec`) decodifica el flujo y coincide con lo
+que simulo el encoder (CRC de las 741 784 muestras).
+
+---
+
 ## 2026-09-10 — Pendiente de medir
 
 - ~~Velocidad de lectura de trackdisk.~~ Medida en el Hito 4: 17,9 KB/s.
