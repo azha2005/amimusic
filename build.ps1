@@ -116,7 +116,7 @@ function Build-All {
                        '-o', (Join-Path $work 'a500vp-dec.exe'), '-lm'))
 
     # Disco de musica (A5MU): encoder y decoder de referencia
-    $music = @((Join-Path $root 'encoder\adpcm.c'))
+    $music = @((Join-Path $root 'encoder\adpcm.c'), (Join-Path $root 'encoder\ham.c'))
     Invoke-Tool $Gcc ($cflags + $shared + $music + @((Join-Path $root 'encoder\music.c'),
                        (Join-Path $root 'encoder\adf.c'),
                        '-o', (Join-Path $work 'a5mu-enc.exe'), '-lm'))
