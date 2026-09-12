@@ -14,7 +14,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('build', 'run', 'check', 'still', 'play', 'disk', 'clean')]
+    [ValidateSet('build', 'run', 'check', 'still', 'play', 'disk', 'music', 'clean')]
     [string]$Task = 'build',
 
     [string]$Vasm   = 'C:\Users\JC\vbcc\bin\vasmm68k_mot.exe',
@@ -29,6 +29,14 @@ param(
     # disk: el video fuente y cuanto tomar (los primeros 22 s, Hito 2).
     [string]$Video = '',
     [double]$Duration = 22,
+
+    # music: el disco de musica (A5MU). -Measure arma el disco de medicion,
+    # que ademas graba en el disquete el CRC de lo que le dio a Paula.
+    [string]$Audio = '',
+    [string]$Cover = '',
+    [ValidateSet('adpcm', 'pcm8')]
+    [string]$AudioFormat = 'pcm8',
+    [switch]$Measure,
 
     # still / play: el bitstream que se usa (el que deja 'disk'), y para
     # still, cual frame.
@@ -86,6 +94,16 @@ function Build-All {
     Invoke-Tool $Vasm @('-Fbin', '-m68000', '-no-opt', '-I', $player,
                         '-o', (Join-Path $work 'still.bin'),
                         (Join-Path $player 'still.s'))
+
+    # El reproductor del disco de musica (A5MU), y su version de medicion
+    Invoke-Tool $Vasm @('-Fbin', '-m68000', '-no-opt', '-I', $player,
+                        '-o', (Join-Path $work 'music.bin'),
+                        (Join-Path $player 'music.s'))
+
+    Invoke-Tool $Vasm @('-Fbin', '-m68000', '-no-opt', '-I', $player,
+                        '-DBENCH=1',
+                        '-o', (Join-Path $work 'music_bench.bin'),
+                        (Join-Path $player 'music.s'))
 
     # El reproductor, y su version de medicion (-DBENCH)
     Invoke-Tool $Vasm @('-Fbin', '-m68000', '-no-opt', '-I', $player,
@@ -333,6 +351,54 @@ switch ($Task) {
             '--reserve-tail', "$tail")
         Invoke-Tool (Join-Path $work 'a500vp-dec.exe') @('--in', $out,
             '--preview', (Join-Path $work 'preview.mp4'))
+        Write-Host "disco      : $adf"
+    }
+
+    'music' {
+        # El disco de musica: el encoder arma los datos y el .adf completo,
+        # el decoder de referencia los verifica, y despues arranca en WinUAE.
+        Build-All
+        if (-not $Audio) { throw "Falta -Audio <ruta a la cancion>." }
+        $out = Join-Path $work 'musica.a5m'
+        # El disco de medicion usa un reproductor mas largo y ademas graba un
+        # sector al final: se reserva esa diferencia para que los mismos datos
+        # entren en los dos discos.
+        $pl = (Get-Item (Join-Path $work 'music.bin')).Length
+        $pb = (Get-Item (Join-Path $work 'music_bench.bin')).Length
+        $tail = 1 + [math]::Ceiling($pb / 512) - [math]::Ceiling($pl / 512)
+        if ($Measure) {
+            $adf = Join-Path $work 'musica_bench.adf'
+            $bin = 'music_bench.bin'
+            $tail = 1
+        } else {
+            $adf = Join-Path $work 'musica.adf'
+            $bin = 'music.bin'
+        }
+        $encArgs = @('--audio', $Audio, '--out', $out, '--adf', $adf,
+                     '--audio-format', $AudioFormat,
+                     '--reserve-tail', "$tail",
+                     '--boot', (Join-Path $work 'boot.bin'),
+                     '--player', (Join-Path $work $bin))
+        if ($Cover) { $encArgs += @('--cover', $Cover) }
+        Invoke-Tool (Join-Path $work 'a5mu-enc.exe') $encArgs
+        Invoke-Tool (Join-Path $work 'a5mu-dec.exe') @('--in', $out)
+
+        $shots = Join-Path $work ('shots\' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+        New-Item -ItemType Directory -Force $shots | Out-Null
+        $r = Start-Emulator -Headless -AdfPath $adf
+        Write-Host "Corriendo $PlayWait s (carga + reproduccion)..."
+        $t0 = Get-Date
+        while ((((Get-Date) - $t0).TotalSeconds -lt $PlayWait) -and -not $r.Process.HasExited) {
+            Start-Sleep -Seconds $ShotEvery
+            $sec = [int]((Get-Date) - $t0).TotalSeconds
+            Save-WindowShot $r.Process (Join-Path $shots ('{0:d3}s.png' -f $sec)) | Out-Null
+        }
+        Write-Host "capturas   : $shots"
+        Stop-Emulator $r.Process
+        if ($Measure) {
+            Invoke-Tool (Join-Path $work 'a5mu-dec.exe') @('--in', $out,
+                '--measure', $r.Adf)
+        }
         Write-Host "disco      : $adf"
     }
 

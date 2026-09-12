@@ -74,6 +74,7 @@ static void write_wav(const char *path, const int8_t *s, size_t n, int rate)
 int main(int argc, char **argv)
 {
     const char *in = NULL, *wav = NULL, *ppm = NULL, *preview = NULL;
+    const char *measure = NULL;
     uint8_t *d, *crc, *rgb;
     size_t len, clen = 0, off, n, nbytes, q;
     int planes, period, afmt, i, bad = 0;
@@ -90,9 +91,11 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--wav") && has)     wav = argv[++i];
         else if (!strcmp(argv[i], "--ppm") && has)     ppm = argv[++i];
         else if (!strcmp(argv[i], "--preview") && has) preview = argv[++i];
+        else if (!strcmp(argv[i], "--measure") && has) measure = argv[++i];
         else {
             printf("uso: a5mu-dec --in <musica.a5m> [--wav <x.wav>] "
-                   "[--ppm <tapa.ppm>] [--preview <x.mp4>]\n");
+                   "[--ppm <tapa.ppm>] [--preview <x.mp4>] "
+                   "[--measure <disco.adf>]\n");
             return 2;
         }
     }
@@ -202,6 +205,50 @@ int main(int argc, char **argv)
             fwrite(rgb, 1, (size_t)A5_HAM_W * A5_HAM_H * 3, pre);
         a5_pclose(pre);
         printf("preview    : %s\n", preview);
+    }
+
+    /* --- lo que midio la Amiga -------------------------------------------
+     * El disco de medicion graba en su ultimo sector el CRC de las muestras
+     * que le dio a Paula. Tiene que ser el mismo que el de aca. */
+    if (measure) {
+        size_t alen = 0;
+        uint8_t *adf = slurp(measure, &alen);
+        const uint8_t *m;
+
+        if (!adf || alen < 1760u * 512u) die("no pude leer el .adf de medicion");
+        m = adf + 1759u * 512u;
+        if (memcmp(m, "MUSI", 4)) {
+            printf("\nEl reproductor no grabo la medicion (el disco de "
+                   "medicion se arma con build.ps1 music -Measure).\n");
+            free(adf);
+            return 1;
+        }
+        printf("\n--- medido en la Amiga ---\n");
+        printf("muestras   : %lu (el encoder dice %lu)\n",
+               (unsigned long)be32(m + 4), (unsigned long)n);
+        printf("buffers    : %lu de 512 muestras\n", (unsigned long)be32(m + 12));
+        printf("formato    : %lu, periodo %lu\n",
+               (unsigned long)be32(m + 20), (unsigned long)be32(m + 24));
+        printf("bloque 1   : $%08lX, %lu bytes (slow RAM)\n",
+               (unsigned long)be32(m + 28), (unsigned long)be32(m + 32));
+        printf("bloque 2   : $%08lX, %lu bytes (Chip)\n",
+               (unsigned long)be32(m + 36), (unsigned long)be32(m + 40));
+        if (be32(m + 16) != 0) {
+            printf("AVISO      : le faltaron %lu muestras por sumar\n",
+                   (unsigned long)be32(m + 16));
+            bad++;
+        }
+        if (be32(m + 4) != n) { printf("AVISO      : no son las mismas muestras\n"); bad++; }
+        if (be32(m + 8) != a5_crc32(samples, n, 0)) {
+            printf("audio      : la Amiga toco %08lX, tendria que ser %08lX\n",
+                   (unsigned long)be32(m + 8),
+                   (unsigned long)a5_crc32(samples, n, 0));
+            bad++;
+        } else {
+            printf("audio      : CRC %08lX, identico a lo que simulo el "
+                   "encoder\n", (unsigned long)be32(m + 8));
+        }
+        free(adf);
     }
 
     if (crc) {
