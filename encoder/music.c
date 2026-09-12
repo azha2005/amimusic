@@ -12,6 +12,7 @@
 #include "stream.h"
 #include "adpcm.h"
 #include "ham.h"
+#include "adf.h"
 
 #define A5M_MAGIC        "A5MU"
 #define A5M_VERSION      1
@@ -33,6 +34,25 @@ static void die(const char *msg)
 static void put_le(FILE *f, uint32_t v, int bytes)
 {
     while (bytes--) { fputc((int)(v & 0xFF), f); v >>= 8; }
+}
+
+static uint8_t *slurp(const char *path, size_t *len)
+{
+    FILE *f = fopen(path, "rb");
+    long n;
+    uint8_t *p;
+
+    if (!f) return NULL;
+    fseek(f, 0, SEEK_END);
+    n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    p = malloc(n > 0 ? (size_t)n : 1);
+    if (!p || n < 0 || fread(p, 1, (size_t)n, f) != (size_t)n) {
+        fclose(f); free(p); return NULL;
+    }
+    fclose(f);
+    *len = (size_t)n;
+    return p;
 }
 
 /* WAV de 16 bits mono: lo que va a sonar, para escucharlo en el PC. */
@@ -156,6 +176,9 @@ static void usage(void)
 "  --audio-format F    adpcm | pcm8 (adpcm): pcm8 suena mejor y dura la\n"
 "                      mitad\n"
 "  --out PATH          datos del disco (work\\musica.a5m)\n"
+"  --adf PATH          ademas, el disquete entero listo para bootear\n"
+"  --boot PATH         bootblock para --adf (work\\boot.bin)\n"
+"  --player PATH       reproductor para --adf (work\\music.bin)\n"
 "  --wav PATH          ademas, lo que va a sonar en un WAV\n"
 "  --ppm PATH          ademas, la tapa como se va a ver (320x256)\n"
 "  --start SEG         desde donde tomar la cancion (0)\n"
@@ -170,6 +193,12 @@ int main(int argc, char **argv)
 {
     const char *in = NULL, *out = "work\\musica.a5m", *wav = NULL;
     const char *cover = NULL, *fit = "letterbox", *ppm = NULL;
+    const char *adf_path = NULL, *boot_path = "work\\boot.bin";
+    const char *player_path = "work\\music.bin";
+    int reserve_tail = 0;
+    uint8_t *boot = NULL, *player = NULL;
+    size_t bootlen = 0, playerlen = 0;
+    long disk_est = A5M_DISK_EST;
     double start = 0, duration = 0, gain = 0;     /* 0 = auto */
     int period = 443, lookahead = 1, compare = 0, beam = 16, i;
     int afmt = A5M_AUDIO_ADPCM4;
@@ -192,6 +221,11 @@ int main(int argc, char **argv)
         else if (!strcmp(a, "--cover-fit") && has) fit = argv[++i];
         else if (!strcmp(a, "--ham-beam") && has)  beam = atoi(argv[++i]);
         else if (!strcmp(a, "--out") && has)       out = argv[++i];
+        else if (!strcmp(a, "--adf") && has)       adf_path = argv[++i];
+        else if (!strcmp(a, "--boot") && has)      boot_path = argv[++i];
+        else if (!strcmp(a, "--player") && has)    player_path = argv[++i];
+        else if (!strcmp(a, "--reserve-tail") && has)
+            reserve_tail = atoi(argv[++i]);
         else if (!strcmp(a, "--wav") && has)       wav = argv[++i];
         else if (!strcmp(a, "--ppm") && has)       ppm = argv[++i];
         else if (!strcmp(a, "--start") && has)     start = atof(argv[++i]);
@@ -218,6 +252,20 @@ int main(int argc, char **argv)
     if (period < 124 || period > 65535) die("periodo fuera de rango (124..65535)");
     if (strcmp(fit, "letterbox") && strcmp(fit, "crop") && strcmp(fit, "stretch"))
         die("--cover-fit: letterbox, crop o stretch");
+
+    /* Con --adf el disco lo arma el encoder, asi que lo que entra no es una
+     * estimacion: es lo que queda despues del bootblock y del reproductor. */
+    if (adf_path) {
+        boot = slurp(boot_path, &bootlen);
+        if (!boot) die("no pude leer el bootblock (--boot)");
+        player = slurp(player_path, &playerlen);
+        if (!player) die("no pude leer el reproductor (--player)");
+        disk_est = (long)(ADF_SECTORS - ADF_BOOT_SECTORS
+                          - (long)adf_sectors_for(playerlen) - reserve_tail)
+                 * ADF_SECTOR_SIZE;
+        printf("reproductor: %lu bytes; quedan %ld para los datos\n",
+               (unsigned long)playerlen, disk_est);
+    }
 
     /* --- audio a la frecuencia exacta de Paula -------------------------
      * ffmpeg solo entrega frecuencias enteras: se le pide la de arriba y el
@@ -333,6 +381,9 @@ int main(int argc, char **argv)
         planes = malloc(A5_HAM_BYTES);
         if (!pix || !disp || !planes) die("sin memoria");
         a5_ham_encode(rgb, beam, 1, pal, pix);
+        /* El reproductor cuenta con esto: el color 0 es el del borde y el
+         * que restaura la barra de carga (FORMAT.md). */
+        if (pal[0] != 0) die("el color 0 de la tapa tendria que ser negro");
         a5_ham_decode(pix, pal, disp);
         a5_ham_planarize(pix, planes);
         cover_error(rgb, disp, &mean, &bad);
@@ -394,7 +445,7 @@ int main(int argc, char **argv)
     }
 
     {
-        long room = A5M_DISK_EST - A5M_HEADER_SIZE -
+        long room = disk_est - A5M_HEADER_SIZE -
                     (cover ? A5M_COVER_BYTES : 0);
         double bps = afmt == A5M_AUDIO_ADPCM4 ? hz / 2 : hz;
         printf("disco      : entran ~%d:%02d de audio%s; esta cancion ocupa "
@@ -452,6 +503,25 @@ int main(int argc, char **argv)
         }
         printf("salida     : %s (%lu bytes) y su .crc\n", out,
                (unsigned long)b.len);
+
+        if (adf_path) {
+            uint8_t *disk = calloc(ADF_SIZE, 1);
+            AdfLayout lay;
+            const char *err;
+
+            if (!disk) die("sin memoria");
+            err = adf_assemble(disk, boot, bootlen, player, playerlen,
+                               b.p, b.len, reserve_tail, &lay);
+            if (err) die(err);
+            f = fopen(adf_path, "wb");
+            if (!f || fwrite(disk, 1, ADF_SIZE, f) != ADF_SIZE)
+                die("no pude escribir el ADF");
+            fclose(f);
+            printf("disco      : %s (datos en el sector %lu, %lu sectores "
+                   "libres)\n", adf_path, (unsigned long)lay.data_sector,
+                   (unsigned long)(lay.limit - lay.used));
+            free(disk);
+        }
         a5buf_free(&b);
     }
     if (wav) {
