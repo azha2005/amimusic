@@ -82,6 +82,36 @@ linea, en big-endian (0 si no hay tapa); asi verifica tambien la regla de
 HAM. El del audio es el de todas las muestras de 8 bits que tienen que
 sonar, en orden. El decoder de referencia (`a5mu-dec`) recalcula los dos.
 
+### Sector de medicion (sector 1759, offset 900 608)
+
+El reproductor de medicion (`player/music.s` ensamblado con `-DBENCH=1`)
+graba esto en el ultimo sector del disquete antes de quedarse quieto, para
+que se pueda leer desde el PC con `a5mu-dec --measure <disco.adf>`. Todo en
+long words big-endian.
+
+| offset | contenido |
+|---|---|
+| 0 | `"MUSI"` |
+| 4 | muestras de la cancion, segun la cabecera |
+| 8 | **CRC-32 de las muestras que se le dieron a Paula** |
+| 12 | buffers que pidio Paula, de 512 muestras |
+| 16 | muestras que quedaron sin sumar al CRC (tiene que ser 0) |
+| 20 | formato de audio |
+| 24 | periodo de Paula |
+| 28 | direccion del bloque 1 (slow RAM) |
+| 32 | bytes del bloque 1 |
+| 36 | direccion del bloque 2 (Chip) |
+| 40 | bytes del bloque 2 |
+| 44 | direccion de los bitplanes de la tapa |
+
+El CRC del offset 8 es el mismo `a5_crc32` del `.crc`, y se calcula sobre
+las muestras **reales**: el silencio con que se rellena el ultimo buffer no
+entra. Por eso tiene que dar exactamente igual al CRC de audio del `.crc`.
+
+El disco de verdad reserva ese sector, y ademas la diferencia de tamano
+entre los dos reproductores, para que los mismos datos entren en los dos
+discos y lo que se mide sea lo que se graba.
+
 ---
 
 # Lo heredado de A500VP
