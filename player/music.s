@@ -40,10 +40,15 @@ AFMT_ADPCM    equ 1
 AFMT_PCM8     equ 2
 
 ; --- barra de carga ---
-; Va en la banda negra de arriba (con letterbox la imagen ocupa las filas
-; 32..223). El Copper compara 8 bits de linea, asi que tiene que quedar
-; antes de la $100: las filas 20..27 son las lineas $40..$47.
-BAR_LINE      equ $40
+; Va en el borde, en las 8 lineas justo arriba de la pantalla ($24..$2B;
+; la imagen empieza en la $2C). En el borde la linea entera es COLOR00, asi
+; que la barra se ve completa **sea cual sea la tapa**. Estaba adentro de la
+; pantalla, en la banda negra de arriba, pero eso solo funciona con tapas
+; apaisadas: con una tapa cuadrada (barras a los costados) arriba hay
+; imagen, y ahi solo se pintan los pixeles de codigo 0, o sea que la barra
+; se cortaba. Tiene que quedar antes de la linea $100: el Copper compara 8
+; bits de linea.
+BAR_LINE      equ $24
 BAR_LINES     equ 8
 BAR_H0        equ $39                 ; WAIT en hpos = color clock 56 (DDFSTRT)
 BAR_STEPS     equ 76                  ; hasta el color clock 208 (DDFSTOP)
