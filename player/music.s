@@ -58,7 +58,8 @@ COP_BAR       equ COP_BPLCON0+4
 COP_END       equ COP_BAR+BAR_LINES*16
 COPPER_BYTES  equ COP_END+4
 
-INFO_SECTOR   equ 1759                ; el disco de medicion graba aca
+INFO_SECTOR   equ 1759                ; medicion y diagnostico se graban aca
+READ_TRIES    equ 5                   ; intentos por lectura
 
 COL_NOMEM     equ $0f00               ; rojo: sin memoria
 COL_DISK      equ $0f0f               ; magenta: fallo de trackdisk
@@ -105,7 +106,10 @@ V_PAL       equ 118     ; 32 bytes, la paleta tal cual viene del disco
 V_CRC       equ 150     ; l  CRC de lo que sono (ya invertido, como en el C)
 V_CRCLEFT   equ 154     ; l  muestras que faltan sumar al CRC
 V_NSAMP     equ 158     ; l  muestras de la cancion
-VARS_SIZE   equ 162
+V_ERRCODE   equ 162     ; l  ultimo error de trackdisk
+V_ERROFF    equ 166     ; l  offset en el disco donde fallo
+V_ERRTRY    equ 170     ; l  reintentos gastados en esa lectura
+VARS_SIZE   equ 174
 
 ;----------------------------------------------------------------------
 ; Cabecera del reproductor. adf_assemble escribe donde quedaron los datos.
@@ -428,8 +432,7 @@ entry:
 nomem:  move.w  #COL_NOMEM,d0
         bra.s   stop
 diskerr:
-        move.w  #COL_DISK,d0
-        bra.s   stop
+        bra     disk_fail
 badhdr: move.w  #COL_BADHDR,d0
 stop:   lea     CUSTOM,a0
 .loop:  move.w  d0,COLOR00(a0)
@@ -608,11 +611,17 @@ hide_bar:
 ;----------------------------------------------------------------------
 ; read_chunk - lee CHUNK_BYTES (o lo que quede de disco) al rebote.
 ;   d0 = offset en disco, multiplo de 512.  Z = 1 si salio bien.
+;
+; Reintenta hasta READ_TRIES veces. En hardware real una lectura marginal
+; suele salir al segundo intento; apagar el motor entre intentos hace que
+; el proximo acceso recalibre la cabeza.
 ;----------------------------------------------------------------------
 read_chunk:
-        movem.l d1/a0-a1,-(sp)
-        move.l  #DISK_BYTES,d1
-        sub.l   d0,d1
+        movem.l d1-d3/a0-a1,-(sp)
+        move.l  d0,d3                         ; d3 = offset
+        moveq   #READ_TRIES,d2
+.try:   move.l  #DISK_BYTES,d1
+        sub.l   d3,d1
         cmp.l   #CHUNK_BYTES,d1
         bls.s   .len
         move.l  #CHUNK_BYTES,d1
@@ -620,11 +629,66 @@ read_chunk:
         move.w  #CMD_READ,IO_COMMAND(a1)
         move.l  d1,IO_LENGTH(a1)
         move.l  V_BOUNCE(a4),IO_DATA(a1)
-        move.l  d0,IO_OFFSET(a1)
+        move.l  d3,IO_OFFSET(a1)
         jsr     _LVODoIO(a6)
         tst.l   d0
-        movem.l (sp)+,d1/a0-a1                ; movem no toca los flags
+        beq.s   .out
+        move.l  d0,V_ERRCODE(a4)              ; guardar por si no sale
+        move.l  d3,V_ERROFF(a4)
+        subq.l  #1,d2
+        beq.s   .out
+        move.l  a5,a1                         ; motor abajo y de nuevo
+        move.w  #TD_MOTOR,IO_COMMAND(a1)
+        clr.l   IO_LENGTH(a1)
+        jsr     _LVODoIO(a6)
+        bra.s   .try
+.out:   move.l  #READ_TRIES,d1
+        sub.l   d2,d1
+        move.l  d1,V_ERRTRY(a4)
+        tst.l   d0
+        movem.l (sp)+,d1-d3/a0-a1             ; movem no toca los flags
         rts
+
+;----------------------------------------------------------------------
+; disk_fail - no se pudo leer. El disquete igual se puede *escribir*, asi
+; que deja el diagnostico en el ultimo sector y despues se lee desde el PC
+; con a5mu-dec --measure. Si esta protegido contra escritura, no pasa nada:
+; queda la pantalla magenta igual.
+;----------------------------------------------------------------------
+disk_fail:
+        move.l  V_BOUNCE(a4),a0
+        move.w  #127,d0
+.clr:   clr.l   (a0)+
+        dbf     d0,.clr
+        move.l  V_BOUNCE(a4),a0
+        move.l  #$44455252,(a0)+              ; "DERR"
+        move.l  V_ERRCODE(a4),(a0)+
+        move.l  V_ERROFF(a4),(a0)+
+        move.l  V_ERRTRY(a4),(a0)+
+        move.l  V_LOADED(a4),(a0)+
+        move.l  V_DTOT(a4),(a0)+
+        move.w  V_DI(a4),d0                   ; destino en el que estaba
+        ext.l   d0
+        move.l  d0,(a0)+
+        move.l  hdr_data_off(pc),(a0)+
+        move.l  hdr_data_len(pc),(a0)+
+
+        move.l  a5,a1
+        move.w  #CMD_WRITE,IO_COMMAND(a1)
+        move.l  #512,IO_LENGTH(a1)
+        move.l  V_BOUNCE(a4),IO_DATA(a1)
+        move.l  #INFO_SECTOR*512,IO_OFFSET(a1)
+        jsr     _LVODoIO(a6)
+        move.l  a5,a1                         ; bajar la pista a disco
+        move.w  #CMD_UPDATE,IO_COMMAND(a1)
+        clr.l   IO_LENGTH(a1)
+        jsr     _LVODoIO(a6)
+        move.l  a5,a1
+        move.w  #TD_MOTOR,IO_COMMAND(a1)
+        clr.l   IO_LENGTH(a1)
+        jsr     _LVODoIO(a6)
+        move.w  #COL_DISK,d0
+        bra     stop
 
 ;----------------------------------------------------------------------
 ; level4 - interrupcion de audio del canal 0. Paula engancho el buffer que

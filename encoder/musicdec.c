@@ -217,6 +217,31 @@ int main(int argc, char **argv)
 
         if (!adf || alen < 1760u * 512u) die("no pude leer el .adf de medicion");
         m = adf + 1759u * 512u;
+        if (!memcmp(m, "DERR", 4)) {
+            /* El reproductor no pudo leer el disquete y dejo el porque. */
+            long code = (long)(int32_t)be32(m + 4);
+            printf("\n--- el reproductor NO pudo leer el disquete ---\n");
+            printf("error      : trackdisk devolvio %ld%s\n", code,
+                   code == 20 ? " (no hay disco / no arranco el motor)" :
+                   code == 21 ? " (la cabecera del sector no se pudo leer)" :
+                   code == 22 ? " (preambulo de sector malo)" :
+                   code == 23 ? " (checksum del sector mal)" :
+                   code == 24 ? " (checksum de los datos mal)" :
+                   code == 25 ? " (no pudo posicionar la cabeza)" :
+                   code == 28 ? " (disquete protegido contra escritura)" :
+                   code == 29 ? " (el disquete se cambio)" : "");
+            printf("offset     : %lu (sector %lu), despues de %lu reintentos\n",
+                   (unsigned long)be32(m + 8),
+                   (unsigned long)(be32(m + 8) / 512),
+                   (unsigned long)be32(m + 12));
+            printf("cargado    : %lu de %lu bytes (destino %ld)\n",
+                   (unsigned long)be32(m + 16), (unsigned long)be32(m + 20),
+                   (long)(int32_t)be32(m + 24));
+            printf("los datos  : offset %lu, %lu bytes\n",
+                   (unsigned long)be32(m + 28), (unsigned long)be32(m + 32));
+            free(adf);
+            return 1;
+        }
         if (memcmp(m, "MUSI", 4)) {
             printf("\nEl reproductor no grabo la medicion (el disco de "
                    "medicion se arma con build.ps1 music -Measure).\n");
