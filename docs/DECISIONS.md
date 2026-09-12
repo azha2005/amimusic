@@ -1053,6 +1053,69 @@ el de las 741 784 muestras de audio.
 
 ---
 
+## 2026-09-11 — M3: el disco, verificado en WinUAE
+
+**Lo que hace el reproductor** (`player/music.s`, 2340 bytes; el de medicion
+3148): carga la tapa, que es lo primero del disco, y la muestra apenas esta
+completa; sigue cargando el audio con una barra de progreso; apaga el motor,
+toma el hardware y toca la cancion entera desde RAM. Al terminar calla a
+Paula y deja la tapa en pantalla.
+
+**Sin paquetes.** En A500VP el audio viaja dentro de los paquetes de video y
+el lector los recorre. Aca el audio es **un solo chorro de bytes**, asi que
+el corte entre los dos bloques de RAM cae en cualquier lado y el lector lo
+cruza solo (`src_check`). La carga es una maquinita de destinos: paleta,
+planos, bloque 1, bloque 2.
+
+**La pantalla mientras carga.** El copper list se arma entero de entrada
+pero con `BPLCON0` sin planos y la paleta en negro: la pantalla queda negra
+aunque los bitplanes se vayan llenando. Cuando la tapa termina de cargar,
+`show_cover` escribe la paleta y enciende los 6 planos (HAM, `$6A00`). Asi
+no se ve el dibujo armandose plano por plano, que serian colores basura.
+
+**La barra de progreso es del Copper, no de la CPU.** Va en 8 lineas de la
+banda negra de arriba (filas 20..27 = lineas `$40..$47`; tiene que quedar
+antes de la linea `$100`, que es hasta donde compara el Copper). Por linea:
+un WAIT, `COLOR00` = blanco, otro WAIT que se mueve con la carga, y
+`COLOR00` = negro. Funciona porque en la banda negra todos los pixeles son
+codigo 0, o sea que muestran `COLOR00` en vivo. El WAIT cuenta de a 2 color
+clocks: 76 pasos entre DDFSTRT y DDFSTOP.
+
+**Bug encontrado mirando las capturas.** Para esconder la barra al final
+ponia los dos WAIT en la misma posicion, esperando ancho cero. Queda un
+muñon de ~50 pixeles: el Copper tarda unos ciclos en ejecutar el segundo
+WAIT y su MOVE, y en ese rato el blanco ya esta puesto. Se esconde
+pintandola de negro (`hide_bar`), que no depende de ningun tiempo.
+
+**Medido en la Amiga** (WinUAE A500 cycle-exact, KS 1.2, disquetera al
+100 %), con el opening de FMA en pcm8 y la tapa de Az, 803 288 bytes:
+
+| | |
+|---|---|
+| Bloque 1 (slow RAM, `$00C04A18`) | 499 176 bytes |
+| Bloque 2 (Chip, `$00018900`) | 242 608 bytes |
+| Buffers que pidio Paula | 1450 de 512 muestras |
+| Muestras sin sumar al CRC | 0 |
+| CRC de lo que sono | **C1140E73, identico al del encoder** |
+
+Las 741 784 muestras que la Amiga le dio a Paula son **byte por byte** las
+que simulo el encoder. La carga termino entre los 40 y los 60 s de las
+capturas, coherente con los 17,9 KB/s medidos en el Hito 4 de A500VP (no se
+cronometro aparte: el reproductor de musica no lleva el TOD).
+
+**Como se verifica.** El reproductor de medicion (`-DBENCH=1`) suma el CRC32
+—el mismo de `a5_crc32`— de las muestras **reales**, sin el silencio con que
+se rellena el ultimo buffer, y lo graba en el sector 1759. `a5mu-dec
+--measure` lo lee del `.adf` y lo compara. El disco de verdad reserva ese
+sector y la diferencia de tamano entre los dos reproductores, para que los
+mismos datos entren en los dos.
+
+**Lo que no esta medido:** el tiempo de carga con cronometro propio, y el
+sonido en si (se verifico el CRC de las muestras, que es mas fuerte que
+escuchar, pero no reemplaza a Az escuchandolo en la maquina real).
+
+---
+
 ## 2026-09-10 — Pendiente de medir
 
 - ~~Velocidad de lectura de trackdisk.~~ Medida en el Hito 4: 17,9 KB/s.
