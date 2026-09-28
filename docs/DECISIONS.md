@@ -1116,6 +1116,18 @@ escuchar, pero no reemplaza a Az escuchandolo en la maquina real).
 
 ---
 
+## 2026-09-27 — M4: funciona en la A500 real
+
+**Resultado:** Az grabo el disco y lo probo en su A500: anda. Es posterior a
+los reintentos de lectura (`cdc1759`), que se agregaron despues de ver
+magenta en un intento anterior en la maquina real.
+
+**Metodo:** prueba de Az en su maquina, reportada de palabra. No se tomaron
+cifras (tiempo de carga, disquete, programa de grabado); si aparece una
+diferencia con WinUAE, anotarla aca.
+
+---
+
 ## 2026-09-10 — Pendiente de medir
 
 - ~~Velocidad de lectura de trackdisk.~~ Medida en el Hito 4: 17,9 KB/s.
